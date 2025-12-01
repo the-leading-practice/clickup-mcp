@@ -197,4 +197,97 @@ export function registerListToolsWrite(server: McpServer) {
       }
     }
   );
+
+  server.tool(
+    "deleteList",
+    [
+      "Moves a list to the trash in ClickUp (soft delete).",
+      "WARNING: This is a DESTRUCTIVE operation. The list and all its tasks will be moved to trash.",
+      "CRITICAL: You MUST obtain explicit user approval before calling this tool.",
+      "Before deletion:",
+      "1. Use getListInfo to retrieve and show the list details to the user",
+      "2. Clearly present the list name, ID, URL, and task count to the user",
+      "3. Warn the user that ALL tasks in this list will also be moved to trash",
+      "4. Ask the user to explicitly confirm deletion with a clear yes/no question",
+      "5. Only proceed with deletion after receiving explicit confirmation",
+      "The list can be restored from trash in ClickUp.",
+      "ALWAYS verify the list_id and get user approval before deletion."
+    ].join("\n"),
+    {
+      list_id: z.string().min(1).describe("The list ID to delete (move to trash)"),
+      user_confirmed: z.boolean().describe("REQUIRED: Must be true, indicating explicit user confirmation was obtained before calling this tool")
+    },
+    {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    },
+    async ({ list_id, user_confirmed }) => {
+      try {
+        // Enforce user confirmation requirement
+        if (!user_confirmed) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Error: User confirmation required before deleting lists. You must obtain explicit user approval and set user_confirmed=true before calling this tool."
+              }
+            ],
+          };
+        }
+
+        // First, get the list details to confirm it exists and show what's being deleted
+        const listResponse = await fetch(`https://api.clickup.com/api/v2/list/${list_id}`, {
+          headers: { Authorization: CONFIG.apiKey },
+        });
+
+        if (!listResponse.ok) {
+          throw new Error(`Error fetching list before deletion: ${listResponse.status} ${listResponse.statusText}`);
+        }
+
+        const listData = await listResponse.json();
+        const listName = listData.name;
+        const listUrl = generateListUrl(list_id);
+        const taskCount = listData.task_count || 0;
+
+        // Delete the list (moves to trash)
+        const deleteResponse = await fetch(`https://api.clickup.com/api/v2/list/${list_id}`, {
+          method: 'DELETE',
+          headers: { Authorization: CONFIG.apiKey }
+        });
+
+        if (!deleteResponse.ok) {
+          const errorData = await deleteResponse.json().catch(() => ({}));
+          throw new Error(`Error deleting list: ${deleteResponse.status} ${deleteResponse.statusText} - ${JSON.stringify(errorData)}`);
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                `List moved to trash successfully!`,
+                `list_id: ${list_id}`,
+                `list_name: ${listName}`,
+                `previous_url: ${listUrl}`,
+                `tasks_affected: ${taskCount}`,
+                `The list and all ${taskCount} task(s) have been moved to trash and can be restored from the ClickUp trash if needed.`
+              ].join('\n')
+            }
+          ],
+        };
+
+      } catch (error) {
+        console.error('Error deleting list:', error);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error deleting list: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 }

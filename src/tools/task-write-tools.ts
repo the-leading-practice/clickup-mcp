@@ -418,6 +418,96 @@ export function registerTaskToolsWrite(server: McpServer, userData: any) {
       }
     }
   );
+
+  server.tool(
+    "deleteTask",
+    [
+      "Moves a task to the trash in ClickUp (soft delete).",
+      "WARNING: This is a DESTRUCTIVE operation. The task will be moved to trash.",
+      "CRITICAL: You MUST obtain explicit user approval before calling this tool.",
+      "Before deletion:",
+      "1. Use getTaskById to retrieve and show the task details to the user",
+      "2. Clearly present the task name, ID, and URL to the user",
+      "3. Ask the user to explicitly confirm deletion with a clear yes/no question",
+      "4. Only proceed with deletion after receiving explicit confirmation",
+      "The task can be restored from trash in ClickUp, but consider using updateTask to change status to 'closed' or 'cancelled' instead.",
+      "ALWAYS verify the task_id and get user approval before deletion."
+    ].join("\n"),
+    {
+      task_id: z.string().min(6).max(9).describe("The 6-9 character task ID to delete (move to trash)"),
+      user_confirmed: z.boolean().describe("REQUIRED: Must be true, indicating explicit user confirmation was obtained before calling this tool")
+    },
+    {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    },
+    async ({ task_id, user_confirmed }) => {
+      try {
+        // Enforce user confirmation requirement
+        if (!user_confirmed) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Error: User confirmation required before deleting tasks. You must obtain explicit user approval and set user_confirmed=true before calling this tool."
+              }
+            ],
+          };
+        }
+
+        // First, get the task details to confirm it exists and show what's being deleted
+        const taskResponse = await fetch(`https://api.clickup.com/api/v2/task/${task_id}`, {
+          headers: { Authorization: CONFIG.apiKey },
+        });
+
+        if (!taskResponse.ok) {
+          throw new Error(`Error fetching task before deletion: ${taskResponse.status} ${taskResponse.statusText}`);
+        }
+
+        const taskData = await taskResponse.json();
+        const taskName = taskData.name;
+        const taskUrl = taskData.url;
+
+        // Delete the task (moves to trash)
+        const deleteResponse = await fetch(`https://api.clickup.com/api/v2/task/${task_id}`, {
+          method: 'DELETE',
+          headers: { Authorization: CONFIG.apiKey }
+        });
+
+        if (!deleteResponse.ok) {
+          const errorData = await deleteResponse.json().catch(() => ({}));
+          throw new Error(`Error deleting task: ${deleteResponse.status} ${deleteResponse.statusText} - ${JSON.stringify(errorData)}`);
+        }
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: [
+                `Task moved to trash successfully!`,
+                `task_id: ${task_id}`,
+                `task_name: ${taskName}`,
+                `previous_url: ${taskUrl}`,
+                `The task has been moved to trash and can be restored from the ClickUp trash if needed.`
+              ].join('\n')
+            }
+          ],
+        };
+
+      } catch (error) {
+        console.error('Error deleting task:', error);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error deleting task: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 }
 
 // Write-specific utility functions

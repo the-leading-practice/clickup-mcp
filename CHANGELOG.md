@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **deleteTask tool** - Moves tasks to trash (soft delete) with mandatory user confirmation
+- **deleteList tool** - Moves lists and all their tasks to trash (soft delete) with mandatory user confirmation
+- Both deletion tools require explicit `user_confirmed=true` parameter to prevent accidental deletions
+- Deletion tools are only available in `write` mode for safety
+
 ## [1.6.0] - 2025-11-25
 
 ### Added
