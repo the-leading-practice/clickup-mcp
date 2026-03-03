@@ -1,0 +1,14 @@
+services:
+  clickup-mcp:
+    build: .
+    container_name: clickup-mcp
+    ports:
+      - "8417:8417"
+    environment:
+      - CLICKUP_MCP_TRANSPORT=http
+      - CLICKUP_MCP_MODE=${CLICKUP_MCP_MODE:-write}
+      - PORT=8417
+    # No API key in env - provided by connecting agent via headers:
+    #   X-ClickUp-API-Key: your-api-key
+    #   X-ClickUp-Team-ID: your-team-id
+    restart: unless-stopped

@@ -204,6 +204,100 @@ export function registerDocumentToolsRead(server: McpServer) {
       }
     }
   );
+
+  server.tool(
+    "searchDocs",
+    [
+      "Search for documents across the workspace. Can filter by space or creator.",
+      "Returns document metadata without page content - use readDocument to get full content."
+    ].join("\n"),
+    {
+      query: z.string().optional().describe("Search query to filter documents by name"),
+      space_id: z.string().optional().describe("Filter by space ID"),
+      creator_id: z.number().optional().describe("Filter by creator user ID"),
+      limit: z.number().optional().describe("Max results to return (default: 50)"),
+      next_cursor: z.string().optional().describe("Cursor for pagination from previous search")
+    },
+    {
+      readOnlyHint: true
+    },
+    async ({ query, space_id, creator_id, limit, next_cursor }) => {
+      try {
+        const url = new URL(`https://api.clickup.com/api/v3/workspaces/${CONFIG.teamId}/docs/search`);
+        if (query !== undefined) url.searchParams.set('query', query);
+        if (space_id !== undefined) url.searchParams.set('space_id', space_id);
+        if (creator_id !== undefined) url.searchParams.set('creator_id', String(creator_id));
+        if (limit !== undefined) url.searchParams.set('limit', String(limit));
+        if (next_cursor !== undefined) url.searchParams.set('next_cursor', next_cursor);
+
+        const response = await fetch(url.toString(), {
+          headers: { Authorization: CONFIG.apiKey },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error searching docs: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const docs = data.docs || data.data || [];
+
+        if (docs.length === 0) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "No documents found matching the search criteria."
+              }
+            ],
+          };
+        }
+
+        const responseLines = [
+          `Documents found (${docs.length}):`,
+          ""
+        ];
+
+        docs.forEach((doc: any) => {
+          responseLines.push(`doc_id: ${doc.id}`);
+          responseLines.push(`name: ${doc.name}`);
+          responseLines.push(`url: ${generateDocumentUrl(doc.id)}`);
+          if (doc.creator) {
+            const creatorName = doc.creator.username || doc.creator.email || String(doc.creator.id);
+            responseLines.push(`creator: ${creatorName} (user_id: ${doc.creator.id})`);
+          }
+          if (doc.date_created) {
+            responseLines.push(`date_created: ${new Date(Number(doc.date_created)).toISOString()}`);
+          }
+          responseLines.push("");
+        });
+
+        if (data.next_cursor) {
+          responseLines.push(`next_cursor: ${data.next_cursor}`);
+          responseLines.push("(More results available - use next_cursor for the next page)");
+        }
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: responseLines.join("\n")
+            }
+          ],
+        };
+
+      } catch (error) {
+        console.error('Error searching docs:', error);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error searching docs: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 }
 
 export function registerDocumentToolsWrite(server: McpServer) {

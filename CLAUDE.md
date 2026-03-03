@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ClickUp MCP server enabling AI assistants to interact with ClickUp workspaces through the Model Context Protocol. Supports task management, search, comments, time tracking, and document operations.
+ClickUp MCP server enabling AI assistants to interact with ClickUp workspaces through the Model Context Protocol. Provides **170 tools** across 20 modules covering tasks, search, comments, time tracking, documents, chat, goals, views, webhooks, templates, checklists, custom fields, attachments, tags, user/guest management, and v3 API features.
 
 ## Common Development Commands
 
@@ -27,23 +27,49 @@ ClickUp MCP server enabling AI assistants to interact with ClickUp workspaces th
 
 ## Architecture
 
+### Transport Modes
+- **stdio** (default) - Standard I/O for Claude Desktop, npx, and CLI usage
+- **http** - HTTP/SSE transport for Docker and network deployments
+  - Set `CLICKUP_MCP_TRANSPORT=http` to enable
+  - API credentials provided per-session via request headers (`X-ClickUp-API-Key`, `X-ClickUp-Team-ID`, `X-ClickUp-MCP-Mode`)
+  - Entry point: `src/http-server.ts` → `dist/http-server.js`
+  - Endpoint: `POST /mcp` (MCP protocol), `GET /health` (health check)
+  - Default port: 8417
+
 ### Entry Point & Mode System
-- **src/index.ts** - Main server initialization with three operational modes:
+- **src/index.ts** - Stdio transport entry point with three operational modes:
   - `read-minimal`: Only getTaskById and searchTasks (for AI coding context)
   - `read`: All read-only tools
   - `write`: Complete functionality (default)
+- **src/http-server.ts** - HTTP transport entry point for Docker/network deployment
+  - Creates per-session MCP servers with credentials from headers
+  - Session management with UUID-based session IDs
+  - CORS support and graceful shutdown
 - Mode controlled by `CLICKUP_MCP_MODE` environment variable
-- Tools conditionally registered based on mode in initializeServer()
+- Tools conditionally registered based on mode in initializeServer() / createMcpServer()
 
-### Tool Organization
+### Tool Organization (170 tools across 20 modules)
 Tools are modularized in `src/tools/` with separate read/write registration:
-- **task-tools.ts** - Read operations (getTaskById)
-- **task-write-tools.ts** - Write operations (createTask, updateTask, addComment)
+- **task-tools.ts** - Read operations (getTaskById, getTasks, getFilteredTeamTasks, getCustomTaskTypes, getBulkTasksTimeInStatus)
+- **task-write-tools.ts** - Write operations (createTask, updateTask, deleteTask, deleteList, mergeTasks)
 - **search-tools.ts** - searchTasks with fuzzy matching
-- **space-tools.ts** - searchSpaces for workspace structure
-- **list-tools.ts** - getListInfo and updateListInfo (append-only)
-- **time-tools.ts** - getTimeEntries and createTimeEntry
+- **space-tools.ts** - searchSpaces, getSharedHierarchy, space CRUD
+- **folder-tools.ts** - Folder CRUD operations
+- **list-tools.ts** - List CRUD with append-only descriptions
+- **time-tools.ts** - Time tracking (17 tools including legacy endpoints)
 - **doc-tools.ts** - Document operations (read, search, create, update)
+- **chat-tools.ts** - ClickUp Chat v3 API (20 tools: channels, messages, reactions, replies)
+- **comment-tools.ts** - Task/list/view comments with threading (9 tools)
+- **checklist-tools.ts** - Checklist CRUD operations (6 tools)
+- **custom-field-tools.ts** - Custom field management (6 tools)
+- **attachment-tools.ts** - Attachment operations
+- **goal-tools.ts** - Goals and key results (8 tools)
+- **view-tools.ts** - Views CRUD including workspace-level (12 tools)
+- **user-tools.ts** - User, guest, and workspace management (25 tools)
+- **template-tools.ts** - Task/list templates (7 tools)
+- **tag-member-tools.ts** - Tags, watchers, and member access (12 tools)
+- **webhook-tools.ts** - Webhook CRUD (4 tools)
+- **v3-tools.ts** - v3 API: audit logs, task activity, move, duplicate, bulk update, ACL (7 tools)
 
 ### Core Utilities (src/shared/)
 
@@ -85,8 +111,8 @@ Uses Fuse.js for fuzzy search with weighted keys:
 - Use caching extensively (60-second window aligns with rate limit reset)
 
 ### API Documentation
-- ClickUp API docs: https://developer.clickup.com/reference/gettasks
-- Use v2 endpoints for most operations, v3 for documents
+- ClickUp API docs: https://developer.clickup.com/reference/
+- Use v2 endpoints for most operations, v3 for documents, chat, audit logs, ACL, and task move
 
 ### Logging
 - Use `console.error()` to prevent writing log messages to stdout (MCP uses stdio)

@@ -9,10 +9,23 @@ import {getCurrentUser, getSpaceSearchIndex} from "./shared/utils";
 import { registerTaskToolsRead } from "./tools/task-tools";
 import { registerTaskToolsWrite } from "./tools/task-write-tools";
 import { registerSearchTools } from "./tools/search-tools";
-import { registerSpaceTools } from "./tools/space-tools";
+import { registerSpaceToolsRead, registerSpaceToolsWrite } from "./tools/space-tools";
+import { registerFolderToolsRead, registerFolderToolsWrite } from "./tools/folder-tools";
 import { registerListToolsRead, registerListToolsWrite } from "./tools/list-tools";
 import { registerTimeToolsRead, registerTimeToolsWrite } from "./tools/time-tools";
 import { registerDocumentToolsRead, registerDocumentToolsWrite } from "./tools/doc-tools";
+import { registerTemplateToolsRead, registerTemplateToolsWrite } from "./tools/template-tools";
+import { registerChecklistToolsRead, registerChecklistToolsWrite } from "./tools/checklist-tools";
+import { registerCustomFieldToolsRead, registerCustomFieldToolsWrite } from "./tools/custom-field-tools";
+import { registerAttachmentToolsRead, registerAttachmentToolsWrite } from "./tools/attachment-tools";
+import { registerCommentToolsRead, registerCommentToolsWrite } from "./tools/comment-tools";
+import { registerGoalToolsRead, registerGoalToolsWrite } from "./tools/goal-tools";
+import { registerViewToolsRead, registerViewToolsWrite } from "./tools/view-tools";
+import { registerUserToolsRead, registerUserToolsWrite } from "./tools/user-tools";
+import { registerWebhookToolsRead, registerWebhookToolsWrite } from "./tools/webhook-tools";
+import { registerV3ToolsRead, registerV3ToolsWrite } from "./tools/v3-tools";
+import { registerTagMemberToolsRead, registerTagMemberToolsWrite } from "./tools/tag-member-tools";
+import { registerChatToolsRead, registerChatToolsWrite } from "./tools/chat-tools";
 import { registerSpaceResources } from "./resources/space-resources";
 
 // Create server variable that will be initialized later
@@ -107,24 +120,64 @@ Use the ClickUp search tools to find tasks assigned to me, and get detailed info
     // All read-only tools
     registerTaskToolsRead(server, userData);
     registerSearchTools(server, userData);
-    registerSpaceTools(server);
+    registerSpaceToolsRead(server);
     registerSpaceResources(server);
+    registerFolderToolsRead(server);
     registerListToolsRead(server);
     registerTimeToolsRead(server);
     registerDocumentToolsRead(server);
+    registerTemplateToolsRead(server);
+    registerChecklistToolsRead(server);
+    registerCustomFieldToolsRead(server);
+    registerAttachmentToolsRead(server);
+    registerCommentToolsRead(server);
+    registerGoalToolsRead(server);
+    registerViewToolsRead(server);
+    registerUserToolsRead(server);
+    registerWebhookToolsRead(server);
+    registerV3ToolsRead(server);
+    registerTagMemberToolsRead(server);
+    registerChatToolsRead(server);
   } else if (CONFIG.mode === 'write') {
     // All tools (full functionality)
     registerTaskToolsRead(server, userData);
     registerTaskToolsWrite(server, userData);
     registerSearchTools(server, userData);
-    registerSpaceTools(server);
+    registerSpaceToolsRead(server);
+    registerSpaceToolsWrite(server);
     registerSpaceResources(server);
+    registerFolderToolsRead(server);
+    registerFolderToolsWrite(server);
     registerListToolsRead(server);
     registerListToolsWrite(server);
     registerTimeToolsRead(server);
     registerTimeToolsWrite(server);
     registerDocumentToolsRead(server);
     registerDocumentToolsWrite(server);
+    registerTemplateToolsRead(server);
+    registerTemplateToolsWrite(server);
+    registerChecklistToolsRead(server);
+    registerChecklistToolsWrite(server);
+    registerCustomFieldToolsRead(server);
+    registerCustomFieldToolsWrite(server);
+    registerAttachmentToolsRead(server);
+    registerAttachmentToolsWrite(server);
+    registerCommentToolsRead(server);
+    registerCommentToolsWrite(server);
+    registerGoalToolsRead(server);
+    registerGoalToolsWrite(server);
+    registerViewToolsRead(server);
+    registerViewToolsWrite(server);
+    registerUserToolsRead(server);
+    registerUserToolsWrite(server);
+    registerWebhookToolsRead(server);
+    registerWebhookToolsWrite(server);
+    registerV3ToolsRead(server);
+    registerV3ToolsWrite(server);
+    registerTagMemberToolsRead(server);
+    registerTagMemberToolsWrite(server);
+    registerChatToolsRead(server);
+    registerChatToolsWrite(server);
   }
 
 

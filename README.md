@@ -43,33 +43,37 @@ Turn natural language into powerful ClickUp actions:
 
 ## Key Features
 
-### 🔍 **Intelligent Search**
-- Fuzzy matching across task names, descriptions, and comments
-- Multi-language search support for international teams
-- Filter by assignees, projects, status, and metadata
+### 170 Tools Across 20 Modules
 
-### 💬 **Complete Context**
-- Full comment histories and team discussions
-- Task descriptions with embedded images  
-- List descriptions and project guidelines
-- Document content with page navigation
-- Access to complete task history and decisions
+| Category | Tools | Capabilities |
+|----------|:-----:|--------------|
+| Tasks | 10 | CRUD, search, bulk query, merge, custom task types |
+| Search | 1 | Fuzzy matching across names, descriptions, content |
+| Spaces & Folders | 12 | Hierarchy browsing, CRUD, shared hierarchy |
+| Lists | 9 | CRUD with append-only descriptions |
+| Documents | 4 | Read, search, create, update pages |
+| Chat (v3) | 20 | Channels, messages, reactions, replies, DMs |
+| Comments | 9 | Task/list/view comments with threading |
+| Time Tracking | 17 | Entries, timers, tags, legacy endpoints |
+| Goals | 8 | Goals and key results with progress |
+| Views | 12 | Workspace/space/folder/list views, CRUD |
+| Users & Guests | 25 | Workspace members, guests, roles, groups |
+| Templates | 7 | Task/list/folder templates |
+| Checklists | 6 | Checklist items on tasks |
+| Custom Fields | 6 | Field values on tasks |
+| Tags & Members | 12 | Tags, watchers, member access |
+| Webhooks | 4 | Event subscription management |
+| v3 API | 7 | Audit logs, task activity, move, duplicate, bulk update, ACL |
+| Attachments | 1 | Task attachment retrieval |
 
-### ⏱️ **Time Tracking**
-- Log time entries with descriptions
-- View historical time logs and entries
-- Query time entries by task or date range
+### Core Capabilities
 
-### 📋 **Task & Document Management**
-- Create and update tasks with markdown descriptions
-- Create, read, and update documents and pages
-- Add comments and collaborate with team members
-- Manage priorities, due dates, assignees, and tags
-- Handle time estimates and custom field values
-
-### 🔒 **Safety Features**
-- **Append-Only Descriptions**: Description fields are never overwritten - new content is safely appended with timestamps
-- **Normal Field Updates**: Status, priority, assignees, tags, and dates can be updated normally (easily revertible through ClickUp's history)
+- **Intelligent Search** - Fuzzy matching across task names, descriptions, and comments with multi-language support
+- **Complete Context** - Full comment histories, embedded images, document content with page navigation
+- **Time Tracking** - Log entries, start/stop timers, tags, legacy endpoint support
+- **Chat Integration** - Full ClickUp Chat API: channels, messages, reactions, replies, direct messages
+- **Task & Document Management** - Create and update with markdown, manage priorities, dates, assignees, custom fields
+- **Safety Features** - Append-only descriptions prevent data loss; normal fields easily revertible through ClickUp history
 
 ## Installation
 
@@ -117,7 +121,63 @@ Replace `your_api_key` and `your_team_id` with your actual ClickUp credentials.
 - **Windsurf**: Add to your MCP configuration file
 - **Cursor**: Configure through the MCP settings panel
 
-### Option 3: Coding Tools Integration
+### Option 3: Docker (HTTP Transport)
+
+Run as a Docker container with HTTP transport. API credentials are provided per-session via request headers — no secrets in environment variables.
+
+```bash
+docker compose up -d
+```
+
+Or build and run manually:
+```bash
+npm run build
+docker build -t clickup-mcp .
+docker run -d -p 8417:8417 --name clickup-mcp clickup-mcp
+```
+
+The server exposes:
+- `POST /mcp` — MCP protocol endpoint (Streamable HTTP)
+- `GET /health` — Health check
+
+**Connecting an MCP client:**
+
+MCP clients must provide credentials via HTTP headers on the initialization request:
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-ClickUp-API-Key` | Yes | Your ClickUp API key |
+| `X-ClickUp-Team-ID` | Yes | Your ClickUp Team ID |
+| `X-ClickUp-MCP-Mode` | No | `read-minimal`, `read`, or `write` (default) |
+
+Clients must also send `Accept: application/json, text/event-stream` and `Content-Type: application/json` headers.
+
+Example initialization:
+```bash
+curl -X POST http://localhost:8417/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "X-ClickUp-API-Key: your_api_key" \
+  -H "X-ClickUp-Team-ID: your_team_id" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}'
+```
+
+**docker-compose.yml:**
+```yaml
+services:
+  clickup-mcp:
+    build: .
+    container_name: clickup-mcp
+    ports:
+      - "8417:8417"
+    environment:
+      - CLICKUP_MCP_TRANSPORT=http
+      - CLICKUP_MCP_MODE=${CLICKUP_MCP_MODE:-write}
+      - PORT=8417
+    restart: unless-stopped
+```
+
+### Option 4: Coding Tools Integration
 
 **Claude Code (CLI):**
 ```bash
@@ -155,22 +215,29 @@ The ClickUp MCP supports three operational modes to balance functionality, secur
 - **📖 `read`**: Full read-only access for project exploration and workflow understanding  
 - **✏️ `write`** (Default): Complete functionality for task management and productivity workflows
 
-| Tool                   | read-minimal | read | write | Description                                                                             |
-|------------------------|:------------:|:----:|:-----:|-----------------------------------------------------------------------------------------|
-| `getTaskById`          |      ✅       |  ✅   |   ✅   | Get complete task details including comments, images, and metadata                      |
-| `addComment`           |      ❌       |  ❌   |   ✅   | Add comments to tasks for collaboration                                                 |
-| `updateTask`           |      ❌       |  ❌   |   ✅   | Update tasks (status, priority, assignees, etc.) with **SAFE APPEND-ONLY** descriptions |
-| `createTask`           |      ❌       |  ❌   |   ✅   | Create new tasks with full markdown support                                             |
-| `searchTasks`          |      ✅       |  ✅   |   ✅   | Find tasks by content, keywords, assignees, or project context                          |
-| `searchSpaces`         |      ❌       |  ✅   |   ✅   | Browse workspace structure, project organization, and documents                         |
-| `getListInfo`          |      ❌       |  ✅   |   ✅   | Get list details and available statuses for task creation                               |
-| `updateListInfo`       |      ❌       |  ❌   |   ✅   | **SAFE APPEND-ONLY** updates to list descriptions (preserves existing content)          |
-| `getTimeEntries`       |      ❌       |  ✅   |   ✅   | View time entries and analyze time spent across projects                                |
-| `createTimeEntry`      |      ❌       |  ❌   |   ✅   | Log time entries for task tracking                                                      |
-| `readDocument`         |      ❌       |  ✅   |   ✅   | Get document details, page structure, and content with navigation                       |
-| `searchDocuments`      |      ❌       |  ✅   |   ✅   | Search documents by name and space with fuzzy matching and space filtering              |
-| `updateDocumentPage`   |      ❌       |  ❌   |   ✅   | Update existing page content or name with replace/append modes                          |
-| `createDocumentOrPage` |      ❌       |  ❌   |   ✅   | Create new documents with first page, or add pages/sub-pages to existing documents      |
+| Category | read-minimal | read | write | Tools |
+|----------|:------------:|:----:|:-----:|:-----:|
+| Tasks (read) | 5 | 5 | 5 | getTaskById, getTasks, getFilteredTeamTasks, getCustomTaskTypes, getBulkTasksTimeInStatus |
+| Tasks (write) | — | — | 5 | createTask, updateTask, deleteTask, deleteList, mergeTasks |
+| Search | 1 | 1 | 1 | searchTasks |
+| Spaces | — | 4 | 7 | searchSpaces, getSharedHierarchy, createSpace, updateSpace, deleteSpace |
+| Folders | — | 2 | 5 | getFolders, getFolder, createFolder, updateFolder, deleteFolder |
+| Lists | — | 4 | 9 | getListInfo, getLists, getFolderlessLists, createList, updateListInfo, deleteList, createFolderlessList, addTaskToList, removeTaskFromList |
+| Documents | — | 3 | 4 | readDocument, searchDocuments, searchDocs (v3), updateDocumentPage, createDocumentOrPage |
+| Chat (v3) | — | 9 | 20 | Channels, messages, reactions, replies, DMs |
+| Comments | — | 4 | 9 | Task/list/view/threaded comments, create, update, delete |
+| Time Tracking | — | 8 | 17 | Entries, timers, tags, legacy endpoints |
+| Goals | — | 2 | 8 | Goals and key results CRUD |
+| Views | — | 6 | 12 | Workspace/space/folder/list views CRUD |
+| Users & Guests | — | 13 | 25 | Members, guests, roles, groups, workspace plan |
+| Templates | — | 4 | 7 | Task/list/folder templates |
+| Checklists | — | 2 | 6 | Checklist and item management |
+| Custom Fields | — | 2 | 6 | Get and set field values |
+| Tags & Members | — | 3 | 12 | Tags, watchers, member access |
+| Webhooks | — | 1 | 4 | Webhook CRUD |
+| v3 API | — | 3 | 7 | Audit logs, task activity, move, duplicate, bulk update, ACL |
+| Attachments | — | 1 | 1 | Get task attachments |
+| **Total** | **6** | **72** | **170** | |
 
 ### Setting the Mode
 
@@ -196,9 +263,11 @@ Add the mode to your MCP configuration:
 
 This MCP server can be configured using environment variables:
 
-- `CLICKUP_API_KEY`: (Required) Your ClickUp API key.
-- `CLICKUP_TEAM_ID`: (Required) Your ClickUp Team ID (formerly Workspace ID).
+- `CLICKUP_API_KEY`: (Required for stdio) Your ClickUp API key. In HTTP mode, provided via `X-ClickUp-API-Key` header.
+- `CLICKUP_TEAM_ID`: (Required for stdio) Your ClickUp Team ID (formerly Workspace ID). In HTTP mode, provided via `X-ClickUp-Team-ID` header.
 - `CLICKUP_MCP_MODE`: (Optional) Controls which tools are available. Options: `read-minimal`, `read`, `write` (default).
+- `CLICKUP_MCP_TRANSPORT`: (Optional) Transport mode: `stdio` (default) or `http` (for Docker/network deployment).
+- `PORT`: (Optional) HTTP server port when using HTTP transport. Defaults to `8417`.
 - `MAX_IMAGES`: (Optional) The maximum number of images to return for a task in `getTaskById`. Defaults to 4.
 - `MAX_RESPONSE_SIZE_MB`: (Optional) The maximum response size in megabytes for `getTaskById`. Uses intelligent size budgeting to fit the most important images within the limit. Defaults to 1.
 - `CLICKUP_PRIMARY_LANGUAGE`: (Optional) A hint for the primary language used in your ClickUp tasks (e.g., "de" for German, "en" for English). This helps the `searchTask` tool provide more tailored guidance in its description for multilingual searches.
@@ -263,12 +332,87 @@ This ensures no existing content is ever lost while maintaining a clear audit tr
 - **Search Scope**: Searches within the most recent 1000-3000 tasks to prevent running into rate limits (exact number varies by endpoint)
 - **Search Results**: Returns up to 50 most relevant matches to prevent flooding the agent with too many results
 
-**Current Scope:**
-- Focused on task-level operations rather than bulk workspace management
-- Optimized for conversational AI workflows rather than data migration
-- Designed for productivity enhancement, not administrative operations
+**Deployment Options:**
+- **stdio** — Direct integration with Claude Desktop, Cursor, Windsurf, and CLI tools
+- **HTTP** — Docker container with per-session credentials via headers (port 8417)
 
-These limitations ensure reliable performance while covering the most common use cases for both development context and productivity management.
+**API Coverage:**
+- 170 tools covering both ClickUp API v2 and v3
+- Full coverage of tasks, spaces, folders, lists, documents, chat, comments, time tracking, goals, views, users, guests, templates, checklists, custom fields, tags, webhooks, and audit logs
+
+## Recommended Agents
+
+With 170 tools across 20 modules, loading all tools into a single agent context can be noisy and wasteful. Splitting tools across purpose-built agents keeps each agent focused, reduces prompt bloat, and makes it easier to grant the right level of access (e.g. read-only vs. write) per workflow. The groupings below give each agent a coherent, non-overlapping responsibility so tools never conflict between agents.
+
+### 1. Task Management Agent (29 tools)
+
+Creates, reads, updates, and deletes tasks; handles search; manages checklists on tasks; and uploads attachments. This is the workhorse agent for day-to-day work item management.
+
+<details>
+<summary>Tool list</summary>
+
+`getTasks`, `getFilteredTeamTasks`, `getCustomTaskTypes`, `getBulkTasksTimeInStatus`, `getTaskById`, `searchTasks`, `addComment`, `updateTask`, `createTask`, `mergeTasks`, `deleteTask`, `createChecklist`, `updateChecklist`, `deleteChecklist`, `createChecklistItem`, `updateChecklistItem`, `deleteChecklistItem`, `createTaskAttachment`
+</details>
+
+### 2. Workspace Structure Agent (20 tools)
+
+Manages the hierarchy of spaces, folders, and lists — the containers that hold tasks. Use this agent when reorganising projects, creating new project areas, or moving tasks between lists.
+
+<details>
+<summary>Tool list</summary>
+
+`getSpaces`, `getSpace`, `searchSpaces`, `createSpace`, `updateSpace`, `deleteSpace`, `getFolders`, `getFolder`, `createFolder`, `updateFolder`, `deleteFolder`, `getLists`, `getFolderlessLists`, `getListInfo`, `searchLists`, `createList`, `updateListInfo`, `deleteList`, `createFolderlessList`, `addTaskToList`, `removeTaskFromList`
+</details>
+
+### 3. Content & Docs Agent (13 tools)
+
+Handles documents and all comment types (task, list, view, and threaded). Use this agent to read or author rich written content without touching task metadata.
+
+<details>
+<summary>Tool list</summary>
+
+`readDocument`, `searchDocuments`, `searchDocs`, `createDocumentOrPage`, `updateDocumentPage`, `getTaskComments`, `getListComments`, `getViewComments`, `getThreadedComments`, `updateTaskComment`, `deleteTaskComment`, `updateListComment`, `deleteListComment`, `createTaskCommentReply`
+</details>
+
+### 4. Time Tracking Agent (17 tools)
+
+Full time-entry lifecycle: logging hours, starting and stopping live timers, managing time tags, and querying historical entries across both the current and legacy ClickUp time-tracking APIs.
+
+<details>
+<summary>Tool list</summary>
+
+`getTimeEntry`, `getRunningTimeEntry`, `getTimeEntryHistory`, `getTimeEntries`, `getTimeEntriesLegacy`, `getTimeTags`, `getTeamTimeEntries`, `createTimeEntry`, `startTimer`, `stopTimer`, `updateTimeEntry`, `deleteTimeEntry`, `addTimeTag`, `removeTimeTag`, `trackTimeOnLegacy`, `stopTimerLegacy`
+</details>
+
+### 5. Chat Agent (19 tools)
+
+Full ClickUp Chat coverage: channels, direct messages, message threads, reactions, and channel membership. Keeps all real-time communication tooling in one agent.
+
+<details>
+<summary>Tool list</summary>
+
+`getChatChannels`, `getChatChannel`, `getChatChannelMembers`, `getChatMessages`, `getChatDMs`, `getChatMessageReplies`, `getChatReactions`, `getChatChannelInfo`, `createChatChannel`, `sendChatMessage`, `sendChatDirectMessage`, `addChatReaction`, `removeChatReaction`, `updateChatMessage`, `deleteChatMessage`, `addChatMessageReply`, `updateChatMessageReply`, `deleteChatMessageReply`, `updateChatChannel`
+</details>
+
+### 6. Goals, Views & Reporting Agent (27 tools)
+
+Covers strategic planning (goals and key results), workspace views (dashboards, list views, board views), and the v3 reporting APIs for audit logs, activity feeds, bulk data, and task operations like move, duplicate, and bulk update.
+
+<details>
+<summary>Tool list</summary>
+
+`getGoals`, `getGoal`, `createGoal`, `updateGoal`, `deleteGoal`, `createKeyResult`, `updateKeyResult`, `deleteKeyResult`, `getWorkspaceViews`, `getSpaceViews`, `getFolderViews`, `getListViews`, `getViewInfo`, `getViewTasks`, `createWorkspaceView`, `createSpaceView`, `createFolderView`, `createListView`, `updateView`, `deleteView`, `getAuditLogs`, `getTaskActivity`, `getBulkTasksData`, `moveTask`, `duplicateTask`, `bulkUpdateTasks`, `setTaskACL`
+</details>
+
+### 7. Users, Admin & Automation Agent (45 tools)
+
+Handles everything related to people and automation: workspace members, guests, roles, user groups, templates for bootstrapping new work, custom field definitions and values, tags, task watchers and assignees, member access, and webhooks.
+
+<details>
+<summary>Tool list</summary>
+
+`getUser`, `getWorkspaceSeats`, `getCustomRoles`, `getUserGroups`, `getWorkspaceMembers`, `getGuests`, `getGuest`, `getTeamMembers`, `getWorkspacePlan`, `getOrganizationMembers`, `addTeamMember`, `removeTeamMember`, `updateTeamMemberRole`, `inviteGuest`, `removeGuest`, `createUserGroup`, `updateUserGroup`, `deleteUserGroup`, `addToGroup`, `removeFromGroup`, `editCustomRole`, `removeCustomRole`, `getListTemplates`, `getTaskTemplates`, `getFolderTemplates`, `getTaskTemplateInfo`, `createListFromTemplate`, `createTaskFromTemplate`, `createFolderFromTemplate`, `getAccessibleCustomFields`, `getFolderCustomFields`, `getSpaceCustomFields`, `getWorkspaceCustomFields`, `setTaskCustomFieldValue`, `removeTaskCustomFieldValue`, `getSpaceTags`, `getListMembers`, `getTaskMembers`, `createSpaceTag`, `deleteSpaceTag`, `addTaskTag`, `removeTaskTag`, `addTaskWatcher`, `removeTaskWatcher`, `setTaskAssignee`, `unsetTaskAssignee`, `updateMemberListAccess`, `getWebhooks`, `createWebhook`, `updateWebhook`, `deleteWebhook`
+</details>
 
 ## License
 

@@ -420,6 +420,64 @@ export function registerTaskToolsWrite(server: McpServer, userData: any) {
   );
 
   server.tool(
+    "mergeTasks",
+    [
+      "Merge one or more tasks into a target task. The merged tasks will be combined into the target task, preserving comments, attachments, and subtasks.",
+    ].join("\n"),
+    {
+      task_id: z.string().min(6).max(9).describe("The target task ID that will receive the merged content"),
+      merge_task_ids: z.array(z.string()).min(1).describe("Array of task IDs to merge into the target task"),
+    },
+    {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    },
+    async ({ task_id, merge_task_ids }) => {
+      try {
+        const response = await fetch(`https://api.clickup.com/api/v2/task/${task_id}/merge`, {
+          method: 'POST',
+          headers: {
+            Authorization: CONFIG.apiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ merge_with: merge_task_ids })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`Error merging tasks: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+        }
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: [
+                `Tasks merged successfully!`,
+                `target_task_id: ${task_id}`,
+                `merged_task_ids: ${merge_task_ids.join(', ')}`,
+                `The merged tasks have been combined into task ${task_id}.`
+              ].join('\n')
+            }
+          ],
+        };
+
+      } catch (error) {
+        console.error('Error merging tasks:', error);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error merging tasks: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.tool(
     "deleteTask",
     [
       "Moves a task to the trash in ClickUp (soft delete).",

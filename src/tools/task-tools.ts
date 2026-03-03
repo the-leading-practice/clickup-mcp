@@ -10,6 +10,416 @@ import { downloadImages } from "../shared/image-processing";
 
 export function registerTaskToolsRead(server: McpServer, userData: any) {
   server.tool(
+    "getTasks",
+    [
+      "Get tasks from a specific list. Returns up to 100 tasks per page with filtering options. Use this for bulk task retrieval from a known list.",
+    ].join("\n"),
+    {
+      list_id: z.string().min(1).describe("The list ID to get tasks from"),
+      page: z.number().optional().describe("Page number (0-indexed, 100 tasks per page)"),
+      archived: z.boolean().optional().describe("Include archived tasks (default: false)"),
+      include_closed: z.boolean().optional().describe("Include closed tasks (default: false)"),
+      subtasks: z.boolean().optional().describe("Include subtasks (default: false)"),
+      statuses: z.array(z.string()).optional().describe("Filter by status names"),
+      assignees: z.array(z.string()).optional().describe("Filter by assignee user IDs"),
+      due_date_gt: z.number().optional().describe("Filter tasks with due date greater than unix timestamp (ms)"),
+      due_date_lt: z.number().optional().describe("Filter tasks with due date less than unix timestamp (ms)"),
+      order_by: z.enum(['id', 'created', 'updated', 'due_date']).optional().describe("Field to order by"),
+    },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+    async ({ list_id, page, archived, include_closed, subtasks, statuses, assignees, due_date_gt, due_date_lt, order_by }) => {
+      try {
+        const params = new URLSearchParams();
+
+        if (page !== undefined) params.append('page', page.toString());
+        if (archived !== undefined) params.append('archived', archived.toString());
+        if (include_closed !== undefined) params.append('include_closed', include_closed.toString());
+        if (subtasks !== undefined) params.append('subtasks', subtasks.toString());
+        if (due_date_gt !== undefined) params.append('due_date_gt', due_date_gt.toString());
+        if (due_date_lt !== undefined) params.append('due_date_lt', due_date_lt.toString());
+        if (order_by !== undefined) params.append('order_by', order_by);
+
+        if (statuses && statuses.length > 0) {
+          statuses.forEach(status => params.append('statuses[]', status));
+        }
+
+        if (assignees && assignees.length > 0) {
+          assignees.forEach(assignee => params.append('assignees[]', assignee));
+        }
+
+        const response = await fetch(
+          `https://api.clickup.com/api/v2/list/${list_id}/task?${params}`,
+          { headers: { Authorization: CONFIG.apiKey } }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`Error fetching tasks: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+        }
+
+        const data = await response.json();
+        const tasks = data.tasks || [];
+
+        if (tasks.length === 0) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `No tasks found in list ${list_id}.`
+            }]
+          };
+        }
+
+        const lines: string[] = [
+          `Tasks in list ${list_id} (${tasks.length} tasks${page !== undefined ? `, page ${page}` : ''}):`,
+          ''
+        ];
+
+        tasks.forEach((task: any) => {
+          const assigneeNames = task.assignees?.map((a: any) => `${a.username} (${a.id})`).join(', ') || 'None';
+          const dueDate = task.due_date ? timestampToIso(task.due_date) : 'None';
+          const priority = task.priority?.priority || 'none';
+
+          lines.push(`task_id: ${task.id}`);
+          lines.push(`  name: ${task.name}`);
+          lines.push(`  status: ${task.status?.status || 'Unknown'}`);
+          lines.push(`  priority: ${priority}`);
+          lines.push(`  assignees: ${assigneeNames}`);
+          lines.push(`  due_date: ${dueDate}`);
+          lines.push(`  list: ${task.list?.name || 'Unknown'} (${task.list?.id || 'N/A'})`);
+          lines.push('');
+        });
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join('\n')
+          }]
+        };
+
+      } catch (error) {
+        console.error('Error fetching tasks:', error);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error fetching tasks: ${error instanceof Error ? error.message : 'Unknown error'}`
+          }]
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "getFilteredTeamTasks",
+    [
+      "Search and filter tasks across the entire workspace. Powerful query endpoint with many filter options. Returns up to 100 tasks per page.",
+    ].join("\n"),
+    {
+      page: z.number().optional().describe("Page number (0-indexed, 100 tasks per page)"),
+      list_ids: z.array(z.string()).optional().describe("Filter by list IDs"),
+      space_ids: z.array(z.string()).optional().describe("Filter by space IDs"),
+      folder_ids: z.array(z.string()).optional().describe("Filter by folder IDs"),
+      statuses: z.array(z.string()).optional().describe("Filter by status names"),
+      assignees: z.array(z.string()).optional().describe("Filter by assignee user IDs"),
+      tags: z.array(z.string()).optional().describe("Filter by tag names"),
+      include_closed: z.boolean().optional().describe("Include closed tasks (default: false)"),
+      subtasks: z.boolean().optional().describe("Include subtasks (default: false)"),
+      due_date_gt: z.number().optional().describe("Filter tasks with due date greater than unix timestamp (ms)"),
+      due_date_lt: z.number().optional().describe("Filter tasks with due date less than unix timestamp (ms)"),
+      date_created_gt: z.number().optional().describe("Filter tasks created after unix timestamp (ms)"),
+      date_created_lt: z.number().optional().describe("Filter tasks created before unix timestamp (ms)"),
+      date_updated_gt: z.number().optional().describe("Filter tasks updated after unix timestamp (ms)"),
+      date_updated_lt: z.number().optional().describe("Filter tasks updated before unix timestamp (ms)"),
+      order_by: z.enum(['id', 'created', 'updated', 'due_date']).optional().describe("Field to order by"),
+    },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+    async ({ page, list_ids, space_ids, folder_ids, statuses, assignees, tags, include_closed, subtasks, due_date_gt, due_date_lt, date_created_gt, date_created_lt, date_updated_gt, date_updated_lt, order_by }) => {
+      try {
+        const params = new URLSearchParams();
+
+        if (page !== undefined) params.append('page', page.toString());
+        if (include_closed !== undefined) params.append('include_closed', include_closed.toString());
+        if (subtasks !== undefined) params.append('subtasks', subtasks.toString());
+        if (due_date_gt !== undefined) params.append('due_date_gt', due_date_gt.toString());
+        if (due_date_lt !== undefined) params.append('due_date_lt', due_date_lt.toString());
+        if (date_created_gt !== undefined) params.append('date_created_gt', date_created_gt.toString());
+        if (date_created_lt !== undefined) params.append('date_created_lt', date_created_lt.toString());
+        if (date_updated_gt !== undefined) params.append('date_updated_gt', date_updated_gt.toString());
+        if (date_updated_lt !== undefined) params.append('date_updated_lt', date_updated_lt.toString());
+        if (order_by !== undefined) params.append('order_by', order_by);
+
+        if (list_ids && list_ids.length > 0) {
+          list_ids.forEach(id => params.append('list_ids[]', id));
+        }
+
+        if (space_ids && space_ids.length > 0) {
+          space_ids.forEach(id => params.append('space_ids[]', id));
+        }
+
+        if (folder_ids && folder_ids.length > 0) {
+          folder_ids.forEach(id => params.append('folder_ids[]', id));
+        }
+
+        if (statuses && statuses.length > 0) {
+          statuses.forEach(status => params.append('statuses[]', status));
+        }
+
+        if (assignees && assignees.length > 0) {
+          assignees.forEach(assignee => params.append('assignees[]', assignee));
+        }
+
+        if (tags && tags.length > 0) {
+          tags.forEach(tag => params.append('tags[]', tag));
+        }
+
+        const response = await fetch(
+          `https://api.clickup.com/api/v2/team/${CONFIG.teamId}/task?${params}`,
+          { headers: { Authorization: CONFIG.apiKey } }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`Error fetching filtered tasks: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+        }
+
+        const data = await response.json();
+        const tasks = data.tasks || [];
+
+        if (tasks.length === 0) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `No tasks found matching the specified filters.`
+            }]
+          };
+        }
+
+        const lines: string[] = [
+          `Filtered Tasks (${tasks.length} tasks${page !== undefined ? `, page ${page}` : ''}):`,
+          ''
+        ];
+
+        tasks.forEach((task: any) => {
+          const assigneeNames = task.assignees?.map((a: any) => `${a.username} (${a.id})`).join(', ') || 'None';
+          const dueDate = task.due_date ? timestampToIso(task.due_date) : 'None';
+          const priority = task.priority?.priority || 'none';
+
+          lines.push(`task_id: ${task.id}`);
+          lines.push(`  name: ${task.name}`);
+          lines.push(`  status: ${task.status?.status || 'Unknown'}`);
+          lines.push(`  priority: ${priority}`);
+          lines.push(`  assignees: ${assigneeNames}`);
+          lines.push(`  due_date: ${dueDate}`);
+          lines.push(`  list: ${task.list?.name || 'Unknown'} (${task.list?.id || 'N/A'})`);
+          lines.push('');
+        });
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join('\n')
+          }]
+        };
+
+      } catch (error) {
+        console.error('Error fetching filtered team tasks:', error);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error fetching filtered team tasks: ${error instanceof Error ? error.message : 'Unknown error'}`
+          }]
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "getCustomTaskTypes",
+    [
+      "Get custom task types available in the workspace. Custom task types define different categories of tasks with their own icons and names.",
+    ].join("\n"),
+    {},
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+    async () => {
+      try {
+        const response = await fetch(
+          `https://api.clickup.com/api/v2/team/${CONFIG.teamId}/custom_item`,
+          { headers: { Authorization: CONFIG.apiKey } }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`Error fetching custom task types: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+        }
+
+        const data = await response.json();
+        const customItems = data.custom_items || [];
+
+        if (customItems.length === 0) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `No custom task types found in workspace.`
+            }]
+          };
+        }
+
+        const lines: string[] = [
+          `Custom Task Types (${customItems.length} total):`,
+          ''
+        ];
+
+        customItems.forEach((item: any) => {
+          lines.push(`id: ${item.id}`);
+          lines.push(`  name: ${item.name}`);
+          if (item.description) {
+            lines.push(`  description: ${item.description}`);
+          }
+          if (item.avatar) {
+            const iconInfo = item.avatar.src
+              ? `src: ${item.avatar.src}`
+              : item.avatar.color
+              ? `color: ${item.avatar.color}`
+              : 'custom icon';
+            lines.push(`  icon: ${iconInfo}`);
+          }
+          lines.push('');
+        });
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join('\n')
+          }]
+        };
+
+      } catch (error) {
+        console.error('Error fetching custom task types:', error);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error fetching custom task types: ${error instanceof Error ? error.message : 'Unknown error'}`
+          }]
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "getBulkTasksTimeInStatus",
+    [
+      "Get time in status data for multiple tasks at once. More efficient than fetching individually for each task.",
+    ].join("\n"),
+    {
+      task_ids: z.array(z.string()).min(1).max(100).describe("Array of task IDs (max 100)"),
+    },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+    async ({ task_ids }) => {
+      try {
+        const params = new URLSearchParams();
+        task_ids.forEach(id => params.append('task_ids', id));
+
+        const response = await fetch(
+          `https://api.clickup.com/api/v2/task/bulk_time_in_status/task_ids?${params}`,
+          { headers: { Authorization: CONFIG.apiKey } }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`Error fetching bulk time in status: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+        }
+
+        const data = await response.json();
+
+        if (!data || Object.keys(data).length === 0) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `No time in status data found for the provided task IDs.`
+            }]
+          };
+        }
+
+        const lines: string[] = [
+          `Bulk Time In Status (${task_ids.length} tasks requested):`,
+          ''
+        ];
+
+        for (const taskId of task_ids) {
+          const taskData = data[taskId];
+          if (!taskData) {
+            lines.push(`task_id: ${taskId}`);
+            lines.push(`  No data available`);
+            lines.push('');
+            continue;
+          }
+
+          lines.push(`task_id: ${taskId}`);
+
+          if (taskData.current_status) {
+            const cs = taskData.current_status;
+            const totalMs = cs.total_time?.by_minute ? cs.total_time.by_minute * 60 * 1000 : 0;
+            const since = cs.total_time?.since ? timestampToIso(cs.total_time.since) : 'Unknown';
+            lines.push(`  current_status: ${cs.status}`);
+            lines.push(`    since: ${since}`);
+            if (totalMs > 0) {
+              const hours = Math.floor(totalMs / 3600000);
+              const minutes = Math.floor((totalMs % 3600000) / 60000);
+              lines.push(`    time_in_status: ${hours}h ${minutes}m`);
+            }
+          }
+
+          if (taskData.status_history && Array.isArray(taskData.status_history) && taskData.status_history.length > 0) {
+            lines.push(`  status_history:`);
+            taskData.status_history.forEach((entry: any) => {
+              const totalMs = entry.total_time?.by_minute ? entry.total_time.by_minute * 60 * 1000 : 0;
+              const since = entry.total_time?.since ? timestampToIso(entry.total_time.since) : 'Unknown';
+              const hours = Math.floor(totalMs / 3600000);
+              const minutes = Math.floor((totalMs % 3600000) / 60000);
+              lines.push(`    - status: ${entry.status}`);
+              lines.push(`      since: ${since}`);
+              lines.push(`      time_in_status: ${hours}h ${minutes}m`);
+            });
+          }
+
+          lines.push('');
+        }
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join('\n')
+          }]
+        };
+
+      } catch (error) {
+        console.error('Error fetching bulk tasks time in status:', error);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error fetching bulk tasks time in status: ${error instanceof Error ? error.message : 'Unknown error'}`
+          }]
+        };
+      }
+    }
+  );
+
+  server.tool(
     "getTaskById",
     [
       "Get a ClickUp task with images and comments by ID.",

@@ -8,10 +8,194 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+#### HTTP Transport & Docker Support
+- New HTTP/SSE transport mode for Docker and network deployments (`CLICKUP_MCP_TRANSPORT=http`)
+- `src/http-server.ts` - Streamable HTTP server with per-session API credential injection
+- API credentials provided via request headers (`X-ClickUp-API-Key`, `X-ClickUp-Team-ID`, `X-ClickUp-MCP-Mode`) — no secrets in environment variables
+- Dockerfile and docker-compose.yml for containerized deployment on port 8417
+- Health check endpoint at `GET /health`
+- CORS support for cross-origin MCP clients
+- Graceful shutdown on SIGINT/SIGTERM
+
+#### Task Query Endpoints (4 new read tools)
+- `getTasks` - Get tasks from a list with filtering (status, assignees, tags, due dates, custom fields)
+- `getFilteredTeamTasks` - Get tasks across the entire workspace with extensive filters
+- `getCustomTaskTypes` - Get custom task types configured for the workspace
+- `getBulkTasksTimeInStatus` - Get time-in-status for multiple tasks at once
+
+#### Task Write Endpoint
+- `mergeTasks` - Merge multiple tasks into one
+
+#### Chat Tools (20 tools — new module)
+- `getChatChannels` - List chat channels in workspace
+- `getChatChannel` - Get channel details
+- `getChatChannelMembers` - List channel members
+- `getChatChannelFollowers` - List channel followers
+- `getChatMessages` - List messages in a channel
+- `getChatMessageReactions` - Get reactions on a message
+- `getChatMessageReplies` - Get threaded replies
+- `getChatMessageTaggedUsers` - Get users tagged in a message
+- `getChatPostSubtypes` - Get available post subtypes
+- `createChatChannel` - Create a new chat channel
+- `createLocationChatChannel` - Create a channel attached to a location (space, folder, list, task)
+- `createDirectMessage` - Send a direct message
+- `updateChatChannel` - Update channel settings
+- `deleteChatChannel` - Delete a chat channel
+- `sendChatMessage` - Send a message to a channel
+- `updateChatMessage` - Edit a message
+- `deleteChatMessage` - Delete a message
+- `createChatReaction` - Add reaction to a message
+- `deleteChatReaction` - Remove a reaction
+- `createChatReply` - Reply to a message thread
+
+#### Guest & Workspace Endpoints (6 new tools in user-tools)
+- `getGuest` - Get guest details on workspace
+- `inviteGuestToWorkspace` - Invite a guest to the workspace
+- `editGuestOnWorkspace` - Edit guest permissions
+- `removeGuestFromWorkspace` - Remove a guest from workspace
+- `getAuthorizedWorkspaces` - Get workspaces the authenticated user can access
+- `getWorkspacePlan` - Get the workspace's current plan details
+
+#### Template Endpoints (3 new tools)
+- `getTaskTemplates` - List task templates in workspace
+- `createTaskFromTemplate` - Create a task from a template
+- `createListFromTemplateInSpace` - Create a list in a space from a template
+
+#### Document Search (v3)
+- `searchDocs` - Search documents via v3 API with query, space, and creator filters
+
+#### View Endpoint
+- `createWorkspaceView` - Create a view at workspace level
+
+#### Time Tracking Legacy Endpoints (4 new tools)
+- `getTrackedTimeLegacy` - Get time entries via legacy endpoint
+- `trackTimeLegacy` - Create time entry via legacy endpoint
+- `editTimeTrackedLegacy` - Update time entry via legacy endpoint
+- `deleteTimeTrackedLegacy` - Delete time entry via legacy endpoint
+
+#### Space Endpoint
+- `getSharedHierarchy` - Get the shared hierarchy for the workspace
+
+#### v3 API Endpoint
+- `updatePrivacyAccess` - Update ACL/privacy for any object type (space, folder, list, task, doc, view)
+
+#### Deletion Tools
 - **deleteTask tool** - Moves tasks to trash (soft delete) with mandatory user confirmation
 - **deleteList tool** - Moves lists and all their tasks to trash (soft delete) with mandatory user confirmation
 - Both deletion tools require explicit `user_confirmed=true` parameter to prevent accidental deletions
-- Deletion tools are only available in `write` mode for safety
+
+#### Template Tools
+- `getListTemplates` - List all available list templates in the workspace
+- `getFolderTemplates` - List all available folder templates in the workspace
+- `createListFromTemplate` - Create a new list in a folder from a template
+- `createFolderFromTemplate` - Create a new folder in a space from a template
+
+#### Expanded Comment Tools (9 tools)
+- `getTaskComments` - Get all comments on a task
+- `getListComments` - Get comments on a list
+- `getViewComments` - Get comments on a view
+- `getThreadedComments` - Get threaded comment replies
+- `createListComment` - Add comment to a list with markdown support
+- `createViewComment` - Add comment to a view
+- `createThreadedComment` - Reply to an existing comment
+- `updateComment` - Edit an existing comment
+- `deleteComment` - Remove a comment
+
+#### Expanded Time Tracking Tools (9 tools)
+- `getTimeEntryTags` - Get all time entry tags for workspace
+- `getRunningTimeEntry` - Get currently running timer
+- `updateTimeEntry` - Modify time entry details
+- `deleteTimeEntry` - Remove a time entry
+- `startTimeEntry` - Start a new timer on a task
+- `stopTimeEntry` - Stop a running timer
+- `addTimeEntryTags` - Add tags to time entries
+- `removeTimeEntryTags` - Remove tags from time entries
+- `updateTimeEntryTags` - Replace all tags on time entries
+
+#### Goals & Key Results Tools (8 tools)
+- `getGoals` - List all workspace goals with progress
+- `getGoal` - Get detailed goal with all key results
+- `createGoal` - Create a new goal
+- `updateGoal` - Modify goal settings
+- `deleteGoal` - Remove a goal
+- `createKeyResult` - Add measurable key result to a goal
+- `updateKeyResult` - Update key result progress
+- `deleteKeyResult` - Remove a key result
+
+#### Views Tools (12 tools)
+- `getWorkspaceViews` - List all views at workspace level
+- `getSpaceViews` - List views in a space
+- `getFolderViews` - List views in a folder
+- `getListViews` - List views in a list
+- `getView` - Get detailed view information
+- `getViewTasks` - Get tasks filtered by view criteria
+- `createWorkspaceView` - Create view at workspace level
+- `createSpaceView` - Create view in a space (list, board, calendar, gantt, etc.)
+- `createFolderView` - Create view in a folder
+- `createListView` - Create view in a list
+- `updateView` - Modify view settings
+- `deleteView` - Remove a view
+
+#### User & Team Management Tools (25 tools)
+- `getUser` - Get current authenticated user details
+- `getWorkspaceSeats` - Get workspace member seat information
+- `getCustomRoles` - List custom roles in workspace
+- `getUserGroups` - List all user groups/teams
+- `getGuest` - Get guest details on workspace
+- `getTaskGuests` - Get guest users on a task
+- `getListGuests` - Get guest users on a list
+- `getFolderGuests` - Get guest users on a folder
+- `getAuthorizedWorkspaces` - Get workspaces the authenticated user can access
+- `getWorkspacePlan` - Get workspace plan details
+- `inviteUserToWorkspace` - Invite new user to workspace
+- `editUserOnWorkspace` - Modify user's workspace role
+- `removeUserFromWorkspace` - Remove user from workspace
+- `inviteGuestToWorkspace` - Invite a guest to workspace
+- `editGuestOnWorkspace` - Edit guest permissions
+- `removeGuestFromWorkspace` - Remove guest from workspace
+- `createUserGroup` - Create a new team/user group
+- `updateUserGroup` - Modify group settings
+- `deleteUserGroup` - Remove a user group
+- `addGuestToTask` / `removeGuestFromTask` - Manage task guest access
+- `addGuestToList` / `removeGuestFromList` - Manage list guest access
+- `addGuestToFolder` / `removeGuestFromFolder` - Manage folder guest access
+
+#### Webhooks Tools (4 tools)
+- `getWebhooks` - List all configured webhooks
+- `createWebhook` - Create webhook with event subscriptions
+- `updateWebhook` - Modify webhook settings or status
+- `deleteWebhook` - Remove a webhook
+
+#### Advanced/v3 API Tools (7 tools)
+- `getAuditLogs` - Get workspace audit logs (Business+ plan, POST v3 endpoint)
+- `getTaskActivity` - Get task time-in-status history
+- `moveTask` - Move task to another list (v3 PUT endpoint)
+- `duplicateTask` - Create copy of task with options
+- `updateTaskPrivacy` - Update task privacy settings (deprecated, points to updatePrivacyAccess)
+- `updatePrivacyAccess` - Update ACL/privacy for any object type via v3
+- `bulkUpdateTasks` - Batch update multiple tasks
+
+#### Tags & Members Tools (12 tools)
+- `getSpaceTags` - Get all tags defined in a space
+- `getListMembers` - Get members with list access
+- `getTaskMembers` - Get task watchers and assignees
+- `createSpaceTag` - Create new tag with colors
+- `updateSpaceTag` - Modify tag name/colors
+- `deleteSpaceTag` - Remove tag from space
+- `addTagToTask` - Apply tag to a task
+- `removeTagFromTask` - Remove tag from a task
+- `addTaskWatcher` - Add user as task watcher
+- `removeTaskWatcher` - Remove task watcher
+- `shareListWithUser` - Grant list access to user
+- `unshareListFromUser` - Revoke list access
+
+### Changed
+- Expanded from ~14 tools to **170 tools** across 20 modules
+- All new tools follow established patterns with proper hints (readOnlyHint, destructiveHint, idempotentHint)
+- `moveTask` now uses correct v3 PUT endpoint instead of v2 add-to-list
+- `getAuditLogs` now uses correct v3 POST endpoint with JSON body
+- `getTaskActivity` description corrected to "time in status" (not "activity/history")
 
 ## [1.6.0] - 2025-11-25
 

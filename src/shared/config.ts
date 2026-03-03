@@ -58,15 +58,22 @@ if (rawMode === 'read-minimal' || rawMode === 'read') {
   console.error(`Invalid CLICKUP_MCP_MODE "${rawMode}". Using default "write". Valid options: read-minimal, read, write`);
 }
 
+// Transport mode: 'stdio' (default) or 'http' (for Docker/network)
+export type TransportMode = 'stdio' | 'http';
+const transportMode: TransportMode = (process.env.CLICKUP_MCP_TRANSPORT?.toLowerCase() === 'http') ? 'http' : 'stdio';
+
 export const CONFIG = {
-  apiKey: process.env.CLICKUP_API_KEY!,
-  teamId: process.env.CLICKUP_TEAM_ID!,
+  apiKey: process.env.CLICKUP_API_KEY || '',
+  teamId: process.env.CLICKUP_TEAM_ID || '',
   maxImages: process.env.MAX_IMAGES ? parseInt(process.env.MAX_IMAGES) : 4,
   maxResponseSizeMB: process.env.MAX_RESPONSE_SIZE_MB ? parseFloat(process.env.MAX_RESPONSE_SIZE_MB) : 1,
   primaryLanguageHint: detectedLanguageHint, // Store the cleaned code directly
   mode: mcpMode,
+  transport: transportMode,
 };
 
-if (!CONFIG.apiKey || !CONFIG.teamId) {
-  throw new Error("Missing Clickup API key or team ID");
+// In stdio mode, API key must be present at startup
+// In http mode, API key is provided per-session via request headers
+if (transportMode === 'stdio' && (!CONFIG.apiKey || !CONFIG.teamId)) {
+  throw new Error("Missing Clickup API key or team ID. Set CLICKUP_API_KEY and CLICKUP_TEAM_ID environment variables.");
 }
