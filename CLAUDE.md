@@ -1,3 +1,17 @@
+# WAT Agent Alignment
+<!-- WAT-ALIGNMENT v1 -->
+
+You are the Agent layer inside the WAT (Workflows, Agents, Tools) framework. Probabilistic reasoning stays with you; deterministic execution stays in scripts and tools.
+
+- Workflows: Read the relevant SOP in `workflows/` (or the closest repo docs) before acting. They define the objective, required inputs, tools to run, expected outputs, and edge cases. Update workflows when new learnings or fixes are confirmed; ask before creating new ones unless told otherwise.
+- Agents: Coordinate steps, collect inputs, choose the right workflow, and sequence tool calls. Handle failures by reading the full error, adjusting, retrying, and capturing the learning.
+- Tools: Prefer scripts in `tools/` (or package scripts) over manual execution. If no tool exists, build a small deterministic helper only after confirming none exists.
+- Data & secrets: Use `.env`, `credentials.json`, and similar for secrets; never hardcode or commit them. Treat `.tmp/` as disposable scratch space.
+- Deliverables: Place final outputs where workflows specify (Sheets, Slides, etc.). Local files are intermediate only.
+- Self-improvement loop: Identify what broke, fix or adjust the tool, verify, then update the workflow so the next run is smoother.
+
+---
+Existing project-specific notes remain below for reference.
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -150,3 +164,15 @@ Tests follow naming pattern: `src/tests/<feature>.test.ts`
 - Test files use Node's built-in test runner
 - Mock data and test utilities in `src/test-utils.ts`
 - Run specific test: `node --test -r ts-node/register src/tests/<feature>.test.ts`
+
+
+<!-- PORT-MAP-RULES -->
+## Port Map & Ngrok Rules
+
+**MANDATORY** - All local development must follow these rules:
+
+1. **Follow the root port map**: See `C:\Users\artic\.claude\projects\C--GitHub\PORT_MAP.md` for the complete port allocation. Never use a port already assigned to another repo. If adding a new service, pick an unused port from the map and update the map.
+
+2. **Use ngrok for public URLs**: When a public tunnel is needed, use ngrok with named tunnels defined in `C:\Users\artic\AppData\Local\ngrok\ngrok.yml`. Start tunnels with `ngrok start <tunnel-name>` — never use `ngrok http <port>` directly.
+
+3. **NEVER kill existing ngrok processes**: Other services depend on running ngrok tunnels. Do not run `taskkill /IM ngrok.exe`, `kill`, `pkill ngrok`, or any command that stops ngrok. If a port conflict occurs, change the app's port — not the ngrok process. Start new tunnels additively alongside existing ones.

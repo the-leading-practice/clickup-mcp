@@ -4,6 +4,7 @@ import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { CONFIG } from "./shared/config";
 import { getCurrentUser, getSpaceSearchIndex } from "./shared/utils";
@@ -33,8 +34,8 @@ import { registerSpaceResources } from "./resources/space-resources";
 
 const PORT = parseInt(process.env.PORT || "8417", 10);
 
-// Session storage
-const transports: Record<string, StreamableHTTPServerTransport> = {};
+// Shared transport store: sessionId -> { transport, server }
+const transports = new Map<string, { transport: StreamableHTTPServerTransport | SSEServerTransport; server: McpServer }>();
 
 /**
  * Create and initialize an MCP server with all tools registered.
@@ -139,17 +140,26 @@ async function createMcpServer(): Promise<McpServer> {
   return server;
 }
 
-/**
- * Read the full request body as a string
- */
-function readBody(req: IncomingMessage): Promise<string> {
+// ━━━ JSON BODY PARSER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function parseJsonBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
-    req.on('error', reject);
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      const raw = Buffer.concat(chunks).toString();
+      if (!raw) return resolve(undefined);
+      try {
+        resolve(JSON.parse(raw));
+      } catch {
+        reject(new Error("Invalid JSON"));
+      }
+    });
+    req.on("error", reject);
   });
 }
+
+// ━━━ STREAMABLE HTTP TRANSPORT (/mcp) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
  * Extract ClickUp credentials from request headers.
@@ -181,8 +191,150 @@ function applyCredentials(creds: { apiKey: string; teamId: string; mode?: string
   }
 }
 
-// Create the HTTP server
+async function handleStreamableHttp(req: IncomingMessage, res: ServerResponse, body: any) {
+  const sessionId = req.headers["mcp-session-id"] as string;
+
+  if (sessionId && transports.has(sessionId)) {
+    const entry = transports.get(sessionId)!;
+    if (!(entry.transport instanceof StreamableHTTPServerTransport)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Session uses a different transport protocol" },
+        id: null,
+      }));
+      return;
+    }
+    await entry.transport.handleRequest(req, res, body);
+    return;
+  }
+
+  if (!sessionId && req.method === "POST" && isInitializeRequest(body)) {
+    // Extract credentials from headers
+    const creds = extractCredentials(req);
+    if (!creds) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Missing credentials. Provide X-ClickUp-API-Key and X-ClickUp-Team-ID headers.",
+        },
+        id: null,
+      }));
+      return;
+    }
+
+    // Apply credentials to CONFIG
+    applyCredentials(creds);
+    console.error(`New session request from team ${creds.teamId}`);
+
+    // Create MCP server with tools
+    const mcpServer = await createMcpServer();
+
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sid: string) => {
+        console.error(`Session initialized: ${sid}`);
+        transports.set(sid, { transport, server: mcpServer });
+      },
+    });
+
+    transport.onclose = () => {
+      const sid = transport.sessionId;
+      if (sid) {
+        console.error(`Session closed: ${sid}`);
+        transports.delete(sid);
+      }
+    };
+
+    await mcpServer.connect(transport);
+    await transport.handleRequest(req, res, body);
+    return;
+  }
+
+  // Not an initialize request and no valid session
+  res.writeHead(400, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({
+    jsonrpc: "2.0",
+    error: { code: -32000, message: "Bad Request: No valid session ID provided" },
+    id: null,
+  }));
+}
+
+// ━━━ LEGACY SSE TRANSPORT (/sse + /messages) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function handleSseConnect(req: IncomingMessage, res: ServerResponse) {
+  // Extract credentials from headers for SSE sessions too
+  const creds = extractCredentials(req);
+  if (!creds) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Missing credentials. Provide X-ClickUp-API-Key and X-ClickUp-Team-ID headers." }));
+    return;
+  }
+
+  applyCredentials(creds);
+  console.error(`New SSE session request from team ${creds.teamId}`);
+
+  const transport = new SSEServerTransport("/messages", res);
+  const mcpServer = await createMcpServer();
+
+  transports.set(transport.sessionId, { transport, server: mcpServer });
+
+  res.on("close", () => {
+    transports.delete(transport.sessionId);
+  });
+
+  await mcpServer.connect(transport);
+}
+
+async function handleSseMessage(req: IncomingMessage, res: ServerResponse, body: any) {
+  const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+  const sessionId = url.searchParams.get("sessionId");
+
+  if (!sessionId || !transports.has(sessionId)) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Missing or invalid sessionId" }));
+    return;
+  }
+
+  const entry = transports.get(sessionId)!;
+  if (!(entry.transport instanceof SSEServerTransport)) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Session uses a different transport protocol" },
+      id: null,
+    }));
+    return;
+  }
+
+  await entry.transport.handlePostMessage(req, res, body);
+}
+
+// ━━━ HTTP SERVER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const serverInfo = {
+  name: "clickup-mcp-server",
+  version: require('../package.json').version,
+  description: "ClickUp MCP Server — Search, create, and retrieve tasks, add comments, and track time through natural language commands.",
+  transports: {
+    streamableHttp: {
+      endpoint: "/mcp",
+      methods: ["GET", "POST", "DELETE"],
+      protocol: "2025-11-25",
+    },
+    sse: {
+      endpoints: { connect: "/sse", messages: "/messages" },
+      protocol: "2024-11-05",
+    },
+  },
+  health: "/health",
+};
+
 const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+  const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
@@ -196,159 +348,99 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
-  // Health check endpoint
-  if (req.url === '/health' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', transport: 'streamable-http' }));
+  // ── Root: server info ──
+  if (url.pathname === "/") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(serverInfo, null, 2));
     return;
   }
 
-  // Only handle /mcp path
-  if (req.url !== '/mcp') {
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found. Use POST /mcp for MCP requests.' }));
+  // ── Health check ──
+  if (url.pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", sessions: transports.size }));
     return;
   }
 
-  // Handle POST /mcp
-  if (req.method === 'POST') {
+  // ── Streamable HTTP transport ──
+  if (url.pathname === "/mcp") {
     try {
-      const body = await readBody(req);
-      const parsedBody = JSON.parse(body);
-      const sessionId = req.headers['mcp-session-id'] as string;
-
-      if (sessionId && transports[sessionId]) {
-        // Existing session - reuse transport
-        await transports[sessionId].handleRequest(req, res, parsedBody);
-      } else if (!sessionId && isInitializeRequest(parsedBody)) {
-        // New session - extract credentials from headers
-        const creds = extractCredentials(req);
-        if (!creds) {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            jsonrpc: '2.0',
-            error: {
-              code: -32000,
-              message: 'Missing credentials. Provide X-ClickUp-API-Key and X-ClickUp-Team-ID headers.',
-            },
-            id: null,
-          }));
-          return;
-        }
-
-        // Apply credentials to CONFIG
-        applyCredentials(creds);
-        console.error(`New session request from team ${creds.teamId}`);
-
-        // Create MCP server with tools
-        const mcpServer = await createMcpServer();
-
-        // Create transport
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (sid) => {
-            console.error(`Session initialized: ${sid}`);
-            transports[sid] = transport;
-          },
-        });
-
-        transport.onclose = () => {
-          const sid = transport.sessionId;
-          if (sid && transports[sid]) {
-            console.error(`Session closed: ${sid}`);
-            delete transports[sid];
-          }
-        };
-
-        await mcpServer.connect(transport);
-        await transport.handleRequest(req, res, parsedBody);
-      } else {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          jsonrpc: '2.0',
-          error: {
-            code: -32000,
-            message: 'Bad Request: No valid session ID provided',
-          },
-          id: null,
-        }));
-      }
-    } catch (error) {
-      console.error('Error handling MCP request:', error);
+      const body = req.method === "POST" ? await parseJsonBody(req) : undefined;
+      await handleStreamableHttp(req, res, body);
+    } catch (err) {
+      console.error("MCP request error:", err);
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          jsonrpc: '2.0',
-          error: { code: -32603, message: 'Internal server error' },
-          id: null,
-        }));
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Internal server error" }));
       }
     }
     return;
   }
 
-  // Handle GET /mcp (SSE streams)
-  if (req.method === 'GET') {
-    const sessionId = req.headers['mcp-session-id'] as string;
-    if (!sessionId || !transports[sessionId]) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid or missing session ID' }));
-      return;
+  // ── Legacy SSE transport: connect ──
+  if (url.pathname === "/sse" && req.method === "GET") {
+    try {
+      await handleSseConnect(req, res);
+    } catch (err) {
+      console.error("SSE connect error:", err);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Internal server error" }));
+      }
     }
-    await transports[sessionId].handleRequest(req, res);
     return;
   }
 
-  // Handle DELETE /mcp (session termination)
-  if (req.method === 'DELETE') {
-    const sessionId = req.headers['mcp-session-id'] as string;
-    if (!sessionId || !transports[sessionId]) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid or missing session ID' }));
-      return;
+  // ── Legacy SSE transport: messages ──
+  if (url.pathname === "/messages" && req.method === "POST") {
+    try {
+      const body = await parseJsonBody(req);
+      await handleSseMessage(req, res, body);
+    } catch (err) {
+      console.error("SSE message error:", err);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Internal server error" }));
+      }
     }
-    await transports[sessionId].handleRequest(req, res);
     return;
   }
 
-  res.writeHead(405, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'Method not allowed' }));
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "Not found" }));
 });
 
-// Start the server
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, "0.0.0.0", () => {
   console.error(`ClickUp MCP HTTP server listening on port ${PORT}`);
-  console.error(`Mode: ${CONFIG.mode}`);
-  console.error(`Endpoint: POST http://0.0.0.0:${PORT}/mcp`);
-  console.error(`Health: GET http://0.0.0.0:${PORT}/health`);
-  console.error(`API credentials provided via headers: X-ClickUp-API-Key, X-ClickUp-Team-ID`);
+  console.error(`  Mode:            ${CONFIG.mode}`);
+  console.error(`  Streamable HTTP: /mcp`);
+  console.error(`  Legacy SSE:      /sse + /messages`);
+  console.error(`  Health:          /health`);
+  console.error(`  Info:            /`);
+  console.error(`  Credentials via headers: X-ClickUp-API-Key, X-ClickUp-Team-ID`);
 });
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  console.error('Shutting down...');
-  for (const sessionId in transports) {
-    try {
-      await transports[sessionId].close();
-      delete transports[sessionId];
-    } catch (error) {
-      console.error(`Error closing session ${sessionId}:`, error);
-    }
-  }
-  httpServer.close();
-  process.exit(0);
-});
+// ━━━ GRACEFUL SHUTDOWN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-process.on('SIGTERM', async () => {
-  console.error('Received SIGTERM, shutting down...');
-  for (const sessionId in transports) {
-    try {
-      await transports[sessionId].close();
-      delete transports[sessionId];
-    } catch (error) {
-      console.error(`Error closing session ${sessionId}:`, error);
-    }
-  }
-  httpServer.close();
-  process.exit(0);
-});
+async function shutdown(signal: string) {
+  console.error(`\n${signal} received, shutting down...`);
+  const closePromises: Promise<void>[] = [];
+  transports.forEach((entry, sid) => {
+    closePromises.push(
+      entry.transport.close().catch((err: any) => {
+        console.error(`Error closing session ${sid}:`, err);
+      })
+    );
+  });
+  await Promise.all(closePromises);
+  transports.clear();
+  httpServer.close(() => {
+    console.error("Server shut down");
+    process.exit(0);
+  });
+  // Force exit after 5s if connections don't close
+  setTimeout(() => process.exit(1), 5000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
