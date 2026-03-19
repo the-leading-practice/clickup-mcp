@@ -33,13 +33,15 @@ export interface CredentialResult {
 export async function loadCredentials(
   service: string,
   envFallback: Record<string, string>,
+  options?: { gatewayToken?: string },
 ): Promise<CredentialResult> {
   // Try gateway first
-  if (GATEWAY_URL && GATEWAY_API_KEY) {
+  const apiKey = options?.gatewayToken || GATEWAY_API_KEY;
+  if (GATEWAY_URL && apiKey) {
     try {
       const url = `${GATEWAY_URL}/api/credentials/service/${encodeURIComponent(service)}`;
       const resp = await fetch(url, {
-        headers: { "X-API-Key": GATEWAY_API_KEY },
+        headers: { "X-API-Key": apiKey },
         signal: AbortSignal.timeout(10_000),
       });
 

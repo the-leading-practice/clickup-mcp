@@ -8,6 +8,7 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { CONFIG } from "./shared/config";
 import { getCurrentUser, getSpaceSearchIndex } from "./shared/utils";
+import { loadCredentials } from "./gateway-credentials.js";
 
 // Import tool registration functions
 import { registerTaskToolsRead } from "./tools/task-tools";
@@ -163,18 +164,36 @@ function parseJsonBody(req: IncomingMessage): Promise<any> {
 
 /**
  * Extract ClickUp credentials from request headers.
- * Headers: X-ClickUp-API-Key, X-ClickUp-Team-ID, X-ClickUp-MCP-Mode
+ * Tries direct headers first (X-ClickUp-API-Key, X-ClickUp-Team-ID),
+ * then falls back to X-Gateway-Token for per-user credential resolution.
  */
-function extractCredentials(req: IncomingMessage): { apiKey: string; teamId: string; mode?: string } | null {
+async function extractCredentials(req: IncomingMessage): Promise<{ apiKey: string; teamId: string; mode?: string } | null> {
   const apiKey = req.headers['x-clickup-api-key'] as string;
   const teamId = req.headers['x-clickup-team-id'] as string;
   const mode = req.headers['x-clickup-mcp-mode'] as string | undefined;
 
-  if (!apiKey || !teamId) {
-    return null;
+  if (apiKey && teamId) {
+    return { apiKey, teamId, mode };
   }
 
-  return { apiKey, teamId, mode };
+  // Try resolving via X-Gateway-Token
+  const gatewayToken = req.headers['x-gateway-token'] as string | undefined;
+  if (gatewayToken) {
+    try {
+      const creds = await loadCredentials("clickup", {
+        api_key: "CLICKUP_API_KEY",
+        team_id: "CLICKUP_TEAM_ID",
+      }, { gatewayToken });
+      if (creds.api_key && creds.team_id) {
+        console.error(`[gateway] Per-session credentials resolved via X-Gateway-Token`);
+        return { apiKey: creds.api_key, teamId: creds.team_id, mode };
+      }
+    } catch (err) {
+      console.error("[gateway] Per-session credential fetch failed:", err);
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -210,15 +229,15 @@ async function handleStreamableHttp(req: IncomingMessage, res: ServerResponse, b
   }
 
   if (!sessionId && req.method === "POST" && isInitializeRequest(body)) {
-    // Extract credentials from headers
-    const creds = extractCredentials(req);
+    // Extract credentials from headers or gateway token
+    const creds = await extractCredentials(req);
     if (!creds) {
       res.writeHead(401, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         jsonrpc: "2.0",
         error: {
           code: -32000,
-          message: "Missing credentials. Provide X-ClickUp-API-Key and X-ClickUp-Team-ID headers.",
+          message: "Missing credentials. Provide X-ClickUp-API-Key and X-ClickUp-Team-ID headers, or X-Gateway-Token.",
         },
         id: null,
       }));
@@ -265,11 +284,11 @@ async function handleStreamableHttp(req: IncomingMessage, res: ServerResponse, b
 // ━━━ LEGACY SSE TRANSPORT (/sse + /messages) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleSseConnect(req: IncomingMessage, res: ServerResponse) {
-  // Extract credentials from headers for SSE sessions too
-  const creds = extractCredentials(req);
+  // Extract credentials from headers or gateway token for SSE sessions too
+  const creds = await extractCredentials(req);
   if (!creds) {
     res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Missing credentials. Provide X-ClickUp-API-Key and X-ClickUp-Team-ID headers." }));
+    res.end(JSON.stringify({ error: "Missing credentials. Provide X-ClickUp-API-Key and X-ClickUp-Team-ID headers, or X-Gateway-Token." }));
     return;
   }
 
@@ -330,6 +349,11 @@ const serverInfo = {
     },
   },
   health: "/health",
+  auth: {
+    gateway_token_header: "X-Gateway-Token",
+    description: "Pass your Claude Gateway API token (cgw_xxx) as X-Gateway-Token header for personalized credentials. Without it, shared global credentials are used.",
+    gateway_dashboard: "https://claude-gateway.coolify.titaniumlabs.us/dashboard",
+  },
 };
 
 const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -338,7 +362,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id, X-ClickUp-API-Key, X-ClickUp-Team-ID, X-ClickUp-MCP-Mode, Last-Event-ID');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id, X-ClickUp-API-Key, X-ClickUp-Team-ID, X-ClickUp-MCP-Mode, X-Gateway-Token, Last-Event-ID');
   res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
 
   // Handle preflight
