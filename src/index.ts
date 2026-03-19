@@ -2,7 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CONFIG } from "./shared/config";
+import { CONFIG, initConfig } from "./shared/config";
 import {getCurrentUser, getSpaceSearchIndex} from "./shared/utils";
 
 // Import tool registration functions
@@ -33,6 +33,9 @@ let server: McpServer;
 
 // Register tools based on mode with user data for enhanced documentation
 async function initializeServer() {
+  // Fetch credentials from gateway (falls back to env vars)
+  await initConfig();
+
   console.error(`Starting ClickUp MCP in ${CONFIG.mode} mode`);
 
   // Fetch current user and spaces for enhanced tool documentation and API health check

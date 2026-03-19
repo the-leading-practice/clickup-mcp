@@ -62,6 +62,8 @@ if (rawMode === 'read-minimal' || rawMode === 'read') {
 export type TransportMode = 'stdio' | 'http';
 const transportMode: TransportMode = (process.env.CLICKUP_MCP_TRANSPORT?.toLowerCase() === 'http') ? 'http' : 'stdio';
 
+import { loadCredentials } from "../gateway-credentials.js";
+
 export const CONFIG = {
   apiKey: process.env.CLICKUP_API_KEY || '',
   teamId: process.env.CLICKUP_TEAM_ID || '',
@@ -72,8 +74,18 @@ export const CONFIG = {
   transport: transportMode,
 };
 
-// In stdio mode, API key must be present at startup
-// In http mode, API key is provided per-session via request headers
-if (transportMode === 'stdio' && (!CONFIG.apiKey || !CONFIG.teamId)) {
-  throw new Error("Missing Clickup API key or team ID. Set CLICKUP_API_KEY and CLICKUP_TEAM_ID environment variables.");
+/**
+ * Initialize config by fetching credentials from the Claude Gateway,
+ * falling back to environment variables.
+ */
+export async function initConfig(): Promise<void> {
+  // In http mode, credentials are provided per-session — skip gateway fetch
+  if (CONFIG.transport === 'http' && CONFIG.apiKey && CONFIG.teamId) return;
+
+  const creds = await loadCredentials("clickup", {
+    api_key: "CLICKUP_API_KEY",
+    team_id: "CLICKUP_TEAM_ID",
+  });
+  CONFIG.apiKey = creds.api_key || CONFIG.apiKey;
+  CONFIG.teamId = creds.team_id || CONFIG.teamId;
 }
