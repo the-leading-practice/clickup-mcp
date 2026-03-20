@@ -386,6 +386,17 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
+  // ── Multi-tenant auth: X-Gateway-Token is the sole auth mechanism ──
+  const gatewayToken = req.headers["x-gateway-token"] as string | undefined;
+  if (!gatewayToken) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      error: "Missing X-Gateway-Token header",
+      help: "Pass your Claude Gateway API token (cgw_xxx) as the X-Gateway-Token header. Get one at https://claude-gateway.coolify.titaniumlabs.us/dashboard",
+    }));
+    return;
+  }
+
   // ── Streamable HTTP transport ──
   if (url.pathname === "/mcp") {
     try {
